@@ -283,13 +283,22 @@ test("MCP stdio server exposes all 15 tools and handles tool calls", async () =>
     });
     const lines = [];
     let buf = "";
+    let resolveDone;
+    const done = new Promise((r) => {
+      resolveDone = r;
+    });
     proc.stdout.on("data", (chunk) => {
       buf += chunk.toString();
       let idx;
       while ((idx = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
-        if (line) lines.push(JSON.parse(line));
+        if (line) {
+          lines.push(JSON.parse(line));
+          if (lines.some((l) => l.id === 2) && lines.some((l) => l.id === 3)) {
+            resolveDone();
+          }
+        }
       }
     });
 
@@ -309,7 +318,7 @@ test("MCP stdio server exposes all 15 tools and handles tool calls", async () =>
       params: { name: "fleet_status", arguments: {} },
     });
 
-    await new Promise((r) => setTimeout(r, 400));
+    await Promise.race([done, new Promise((r) => setTimeout(r, 5000))]);
     proc.kill();
 
     const toolsResp = lines.find((l) => l.id === 2);
