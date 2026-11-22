@@ -1,5 +1,6 @@
 ---
 name: agent-comms
+license: MIT
 description: Local cross-runtime messaging, atomic resource locks, wave barriers, reactive push wakeup, artifact attachments, and optional GitHub issue sync for coding agents via the agent_comms MCP server and CLI (~/.agent-comms). Use when registering an agent, checking fleet status, waiting for peer messages, acquiring locks, checking in to barriers, sending messages, or acknowledging handled messages.
 ---
 
