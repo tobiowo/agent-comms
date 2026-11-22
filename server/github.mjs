@@ -3,11 +3,21 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 
+const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+function validateRepo(repo) {
+  const clean = typeof repo === "string" ? repo.trim() : "";
+  if (!REPO_PATTERN.test(clean) || clean.includes("..")) {
+    throw new Error("repo must match 'owner/name' without '..' or query characters");
+  }
+  return clean;
+}
+
 function writeJsonAtomic(filePath, data) {
   const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
   fs.renameSync(tmp, filePath);
 }
 
@@ -24,15 +34,16 @@ export function getGithubConfig(baseDir) {
   const envIssue = process.env.AGENT_COMMS_GH_ISSUE;
   const envAuthors = process.env.AGENT_COMMS_GH_ALLOWED_AUTHORS;
   if (envRepo && envIssue) {
-    const owner = envRepo.split("/")[0].toLowerCase();
+    const repo = validateRepo(envRepo);
+    const owner = repo.split("/")[0].toLowerCase();
     const allowedAuthors = envAuthors
       ? envAuthors.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [owner];
-    return { repo: envRepo, issueNumber: Number(envIssue), allowedAuthors };
+    return { repo, issueNumber: Number(envIssue), allowedAuthors };
   }
   const cfg = readJsonSafe(path.join(baseDir, "github.json"), null);
   if (cfg?.repo && cfg?.issueNumber) {
-    const repo = String(cfg.repo);
+    const repo = validateRepo(String(cfg.repo));
     const owner = repo.split("/")[0].toLowerCase();
     const allowedAuthors = Array.isArray(cfg.allowedAuthors) && cfg.allowedAuthors.length
       ? cfg.allowedAuthors.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
@@ -43,14 +54,11 @@ export function getGithubConfig(baseDir) {
 }
 
 export function configureGithub({ repo, issueNumber, allowedAuthors = null }, baseDir) {
-  if (!repo || !String(repo).includes("/")) {
-    throw new Error("repo must be in 'owner/name' format");
-  }
+  const cleanRepo = validateRepo(repo);
   const num = Number(issueNumber);
   if (!Number.isInteger(num) || num <= 0) {
     throw new Error("issueNumber must be a positive integer");
   }
-  const cleanRepo = String(repo).trim();
   const owner = cleanRepo.split("/")[0].toLowerCase();
   const cleanAuthors =
     Array.isArray(allowedAuthors) && allowedAuthors.length
@@ -135,7 +143,8 @@ export function pushToGithub(msg, baseDir) {
   };
   const header = `**From:** \`${msg.from}\` → **To:** \`${msg.to}\`${msg.subject ? ` — *${msg.subject}*` : ""}`;
   const tagLine = msg.tags?.length ? `\n\n_Tags: ${msg.tags.join(", ")}_` : "";
-  const commentBody = `<!-- agent-comms: ${JSON.stringify(meta)} -->\n${header}\n\n${msg.body}${tagLine}\n\nPosted by: ${msg.from}`;
+  const safeMeta = JSON.stringify(meta).replace(/-->/g, "--\\u003e");
+  const commentBody = `<!-- agent-comms: ${safeMeta} -->\n${header}\n\n${msg.body}${tagLine}\n\nPosted by: ${msg.from}`;
 
   try {
     const created = ghApi([

@@ -376,3 +376,27 @@ test("CLI end-to-end with channels, locks, barriers, messaging, and GitHub confi
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("security: rejects traversal IDs, reserved prototype keys, oversized IDs, and malformed GitHub repos", () => {
+  const dir = makeTmpBus();
+  try {
+    assert.throws(() => resolveBusDir(dir, ".."), /\.\./);
+    assert.throws(() => resolveBusDir(dir, "a/../b"), /\.\./);
+    assert.throws(() => registerAgent({ agentId: "---" }, dir), /invalid/i);
+    assert.throws(() => registerAgent({ agentId: "__proto__" }, dir), /invalid/i);
+    assert.throws(() => registerAgent({ agentId: "constructor" }, dir), /invalid/i);
+    assert.throws(() => registerAgent({ agentId: "a".repeat(65) }, dir), /at most 64/i);
+
+    assert.throws(() => configureGithub({ repo: "owner/repo/extra", issueNumber: 1 }, dir), /owner\/name/);
+    assert.throws(() => configureGithub({ repo: "owner/repo?x=1", issueNumber: 1 }, dir), /owner\/name/);
+    assert.throws(() => configureGithub({ repo: "owner/..", issueNumber: 1 }, dir), /owner\/name/);
+
+    // Barrier checks own properties, not Object.prototype
+    createBarrier({ name: "proto-check", expected: ["tostring", "w1"], notify: "coord" }, dir);
+    const res = checkinBarrier({ name: "proto-check", agentId: "w1" }, dir);
+    assert.equal(res.justReleased, false);
+    assert.deepEqual(res.remaining, ["tostring"]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

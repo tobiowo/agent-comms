@@ -9,7 +9,9 @@ export const DEFAULT_COMMS_DIR =
 
 const CLOUD_RECIPIENTS = new Set(["cowork", "claude-code-cloud", "cloud"]);
 const URGENT_TAGS = new Set(["urgent", "red-main", "emergency"]);
+const RESERVED_IDS = new Set(["__proto__", "constructor", "prototype", ".", ".."]);
 const DEFAULT_ARCHIVE_HOURS = 72;
+const MAX_ID_LENGTH = 64;
 
 export function resolveBusDir(
   baseDir = DEFAULT_COMMS_DIR,
@@ -38,11 +40,20 @@ function sanitizeId(id, label = "agentId") {
   if (typeof id !== "string" || !id.trim()) {
     throw new Error(`${label} must be a non-empty string`);
   }
-  return id
-    .trim()
-    .toLowerCase()
+  const trimmed = id.trim().toLowerCase();
+  if (trimmed.includes("..")) {
+    throw new Error(`${label} must not contain '..'`);
+  }
+  const clean = trimmed
     .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^[.-]+|[.-]+$/g, "");
+  if (!clean || RESERVED_IDS.has(clean)) {
+    throw new Error(`${label} '${id}' is invalid`);
+  }
+  if (clean.length > MAX_ID_LENGTH) {
+    throw new Error(`${label} must be at most ${MAX_ID_LENGTH} characters`);
+  }
+  return clean;
 }
 
 function normalizeWorkspace(p) {
@@ -51,16 +62,17 @@ function normalizeWorkspace(p) {
 }
 
 function ensureLayout(baseDir = DEFAULT_COMMS_DIR) {
+  fs.mkdirSync(baseDir, { recursive: true, mode: 0o700 });
   for (const sub of ["agents", "messages", "acks", "locks", "artifacts", "barriers"]) {
-    fs.mkdirSync(path.join(baseDir, sub), { recursive: true });
+    fs.mkdirSync(path.join(baseDir, sub), { recursive: true, mode: 0o700 });
   }
 }
 
 function writeJsonAtomic(filePath, data) {
   const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = `${filePath}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
   fs.renameSync(tmp, filePath);
 }
 
@@ -231,7 +243,7 @@ export function acquireLock(
   };
 
   try {
-    const fd = fs.openSync(lockPath, "wx");
+    const fd = fs.openSync(lockPath, "wx", 0o600);
     try {
       fs.writeFileSync(fd, JSON.stringify(record, null, 2) + "\n", "utf8");
     } finally {
@@ -594,7 +606,7 @@ export function checkinBarrier(
   const arrivedIds = Object.keys(record.arrived);
   const remaining =
     record.expected.length > 0
-      ? record.expected.filter((e) => !record.arrived[e])
+      ? record.expected.filter((e) => !Object.hasOwn(record.arrived, e))
       : [];
   const isComplete =
     record.expected.length > 0
@@ -659,7 +671,9 @@ export function listBarriers({ includeReleased = false, includeExpired = false }
     if (rec.released && !includeReleased) continue;
     const arrivedIds = Object.keys(rec.arrived || {});
     const remaining =
-      rec.expected?.length > 0 ? rec.expected.filter((e) => !rec.arrived?.[e]) : [];
+      rec.expected?.length > 0
+        ? rec.expected.filter((e) => !rec.arrived || !Object.hasOwn(rec.arrived, e))
+        : [];
     barriers.push({ ...rec, expired, arrivedCount: arrivedIds.length, remaining });
   }
   barriers.sort((a, b) => a.name.localeCompare(b.name));
