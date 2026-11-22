@@ -2,13 +2,33 @@
 
 A local message bus for coordinating coding agents across separate tools on one machine. Antigravity, Claude Code, Cursor, OpenAI Codex, DeepSeek, and cloud agents can exchange messages, hold resource locks, wait for wave barriers, and share file paths without Redis, Docker, or a background daemon.
 
-```text
-  Antigravity (MCP + wait) --+
-  Claude Code (MCP + wait) --+--> ~/.agent-comms/ (atomic JSON files and O_EXCL locks)
-  Cursor / Codex (MCP)     --+         ^
-  DeepSeek / CLI (cli.mjs) --+         | optional bridge (gh api)
-                                       v
-                           Pinned GitHub issue <--> Cloud agents (Cowork, CI)
+```mermaid
+flowchart LR
+  subgraph Local["Local coding agents"]
+    AG["Antigravity / agy (MCP + wait)"]
+    CC["Claude Code (MCP + wait)"]
+    CX["Cursor / Codex (MCP)"]
+    DS["DeepSeek / CLI (MCP or cli.mjs)"]
+  end
+
+  subgraph Bus["~/.agent-comms/ (or channels/name/)"]
+    MSG["messages/ + acks/ (atomic JSON)"]
+    LCK["locks/ (O_EXCL TTL leases)"]
+    BAR["barriers/ (wave check-ins)"]
+    ART["artifacts/ (shared files)"]
+  end
+
+  subgraph Cloud["Optional cloud bridge"]
+    GH["Pinned GitHub issue (gh api)"]
+    CW["Cloud agents (Cowork, CI)"]
+  end
+
+  AG <--> Bus
+  CC <--> Bus
+  CX <--> Bus
+  DS <--> Bus
+  Bus <-->|"relay: true or cloud recipient"| GH
+  GH <--> CW
 ```
 
 ## What it does
@@ -157,6 +177,24 @@ agent-comms wait --id worker-a --direct-only --timeout 1800
 ```
 
 Routine `claim` and `done` broadcasts to `all` stay out of their way. Direct assignments, barrier releases, and `urgent` or `red-main` alerts wake them as soon as the file lands on disk.
+
+```mermaid
+sequenceDiagram
+  participant C as Coordinator
+  participant Bus as ~/.agent-comms/
+  participant A as Worker A
+  participant B as Worker B
+
+  C->>Bus: create_barrier("wave-1", expected: [A, B], notify: C)
+  C->>Bus: send_message(to: A, "Task 1")
+  C->>Bus: send_message(to: B, "Task 2")
+  Note over C: Sleeps on wait --direct-only
+  Bus-->>A: fs.watch wakes Worker A
+  Bus-->>B: fs.watch wakes Worker B
+  A->>Bus: acquire_lock("issue-1") ... barrier_checkin("wave-1")
+  B->>Bus: acquire_lock("issue-2") ... barrier_checkin("wave-1")
+  Bus-->>C: Barrier released, fs.watch wakes Coordinator
+```
 
 ## MCP tools
 
