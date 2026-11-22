@@ -1,0 +1,10 @@
+{
+  "name": "agent-comms",
+  "version": "0.3.0",
+  "description": "Local message bus with MCP tools, CLI, reactive push wait, atomic TTL locks, wave barriers, and an optional GitHub issue bridge for coding agents.",
+  "license": "MIT",
+  "homepage": "https://github.com/tobiowo/agent-comms",
+  "repository": "https://github.com/tobiowo/agent-comms",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

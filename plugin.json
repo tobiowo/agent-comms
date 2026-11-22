@@ -1,0 +1,13 @@
+{
+  "name": "agent-comms",
+  "displayName": "Agent Comms",
+  "version": "0.3.0",
+  "description": "Local message bus with MCP tools, CLI, reactive push wait, atomic TTL locks, wave barriers, and an optional GitHub issue bridge for Antigravity, Claude Code, Cursor, Codex, DeepSeek, and cloud agents.",
+  "homepage": "https://github.com/tobiowo/agent-comms",
+  "repository": "https://github.com/tobiowo/agent-comms",
+  "suggestedPrompts": [
+    "Register me on the agent-comms bus and check fleet_status",
+    "Acquire an exclusive lock before starting work and broadcast my claim",
+    "Wait for a direct message from another agent using cli.mjs wait --direct-only"
+  ]
+}

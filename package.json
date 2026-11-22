@@ -1,0 +1,47 @@
+{
+  "name": "agent-comms",
+  "version": "0.3.0",
+  "description": "Zero-dependency local message bus (MCP, CLI, reactive push wait, atomic TTL locks, wave barriers, and optional GitHub issue bridge) for coordinating coding agents across Antigravity, Claude Code, Cursor, Codex, DeepSeek, and cloud sandboxes.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "ai-agents",
+    "multi-agent",
+    "claude-code",
+    "cursor",
+    "antigravity",
+    "codex",
+    "deepseek",
+    "coordination",
+    "agent-skills"
+  ],
+  "bin": {
+    "agent-comms": "./server/cli.mjs",
+    "agent-comms-mcp": "./server/mcp.mjs"
+  },
+  "files": [
+    "server/",
+    "scripts/",
+    "skills/",
+    "rules/",
+    "plugin.json",
+    ".claude-plugin/",
+    ".cursor-plugin/",
+    ".mcp.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "install:harness": "node scripts/install.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tobiowo/agent-comms.git"
+  },
+  "homepage": "https://github.com/tobiowo/agent-comms"
+}

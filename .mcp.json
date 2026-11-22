@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "agent_comms": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/server/mcp.mjs"
+      ]
+    }
+  }
+}

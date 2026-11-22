@@ -1,0 +1,13 @@
+{
+  "name": "agent-comms",
+  "owner": {
+    "name": "tobiowo"
+  },
+  "plugins": [
+    {
+      "name": "agent-comms",
+      "source": "./",
+      "description": "Local message bus with MCP tools, CLI, reactive push wait, atomic TTL locks, wave barriers, and an optional GitHub issue bridge for coding agents."
+    }
+  ]
+}
