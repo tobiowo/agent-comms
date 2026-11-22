@@ -22,17 +22,27 @@ function readJsonSafe(filePath, fallback = null) {
 export function getGithubConfig(baseDir) {
   const envRepo = process.env.AGENT_COMMS_GH_REPO;
   const envIssue = process.env.AGENT_COMMS_GH_ISSUE;
+  const envAuthors = process.env.AGENT_COMMS_GH_ALLOWED_AUTHORS;
   if (envRepo && envIssue) {
-    return { repo: envRepo, issueNumber: Number(envIssue) };
+    const owner = envRepo.split("/")[0].toLowerCase();
+    const allowedAuthors = envAuthors
+      ? envAuthors.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : [owner];
+    return { repo: envRepo, issueNumber: Number(envIssue), allowedAuthors };
   }
   const cfg = readJsonSafe(path.join(baseDir, "github.json"), null);
   if (cfg?.repo && cfg?.issueNumber) {
-    return { repo: String(cfg.repo), issueNumber: Number(cfg.issueNumber) };
+    const repo = String(cfg.repo);
+    const owner = repo.split("/")[0].toLowerCase();
+    const allowedAuthors = Array.isArray(cfg.allowedAuthors) && cfg.allowedAuthors.length
+      ? cfg.allowedAuthors.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
+      : [owner];
+    return { repo, issueNumber: Number(cfg.issueNumber), allowedAuthors };
   }
   return null;
 }
 
-export function configureGithub({ repo, issueNumber }, baseDir) {
+export function configureGithub({ repo, issueNumber, allowedAuthors = null }, baseDir) {
   if (!repo || !String(repo).includes("/")) {
     throw new Error("repo must be in 'owner/name' format");
   }
@@ -40,13 +50,27 @@ export function configureGithub({ repo, issueNumber }, baseDir) {
   if (!Number.isInteger(num) || num <= 0) {
     throw new Error("issueNumber must be a positive integer");
   }
+  const cleanRepo = String(repo).trim();
+  const owner = cleanRepo.split("/")[0].toLowerCase();
+  const cleanAuthors =
+    Array.isArray(allowedAuthors) && allowedAuthors.length
+      ? Array.from(new Set(allowedAuthors.map((s) => String(s).trim().toLowerCase()).filter(Boolean)))
+      : [owner];
   const cfg = {
-    repo: String(repo).trim(),
+    repo: cleanRepo,
     issueNumber: num,
+    allowedAuthors: cleanAuthors,
     updatedAt: new Date().toISOString(),
   };
   writeJsonAtomic(path.join(baseDir, "github.json"), cfg);
   return cfg;
+}
+
+export function isAuthorAllowed(login, allowedAuthors) {
+  if (!Array.isArray(allowedAuthors) || allowedAuthors.length === 0) return false;
+  if (allowedAuthors.includes("*")) return true;
+  if (!login) return false;
+  return allowedAuthors.includes(String(login).trim().toLowerCase());
 }
 
 function ghApi(args) {
@@ -164,6 +188,7 @@ export function syncFromGithub({ force = false, limit = 100 } = {}, baseDir) {
     const msgDir = path.join(baseDir, "messages");
     fs.mkdirSync(msgDir, { recursive: true });
     let imported = 0;
+    let skippedUntrusted = 0;
     let maxCreatedAt = seen.lastCommentAt || null;
 
     for (const c of comments) {
@@ -172,6 +197,11 @@ export function syncFromGithub({ force = false, limit = 100 } = {}, baseDir) {
       const cid = Number(c.id);
       if (!cid || seenSet.has(cid)) continue;
       seenSet.add(cid);
+
+      if (!isAuthorAllowed(c.user?.login, cfg.allowedAuthors)) {
+        skippedUntrusted++;
+        continue;
+      }
 
       const parsed = parseCommentMetadata(c.body, c.user?.login);
       if (!parsed.body) continue;
@@ -205,7 +235,7 @@ export function syncFromGithub({ force = false, limit = 100 } = {}, baseDir) {
       lastSyncAt: new Date().toISOString(),
       lastCommentAt: maxCreatedAt,
     });
-    return { ok: true, repo: cfg.repo, issueNumber: cfg.issueNumber, imported };
+    return { ok: true, repo: cfg.repo, issueNumber: cfg.issueNumber, imported, skippedUntrusted };
   } catch (err) {
     return { ok: false, error: err.message, imported: 0 };
   }

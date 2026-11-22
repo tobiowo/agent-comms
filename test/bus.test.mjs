@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { configureGithub, getGithubConfig } from "../server/github.mjs";
+import { configureGithub, getGithubConfig, isAuthorAllowed } from "../server/github.mjs";
 
 import {
   ackMessages,
@@ -358,7 +358,20 @@ test("CLI end-to-end with channels, locks, barriers, messaging, and GitHub confi
 
     const ghCfg = configureGithub({ repo: "owner/repo", issueNumber: 42 }, dir);
     assert.equal(ghCfg.issueNumber, 42);
-    assert.deepEqual(getGithubConfig(dir), { repo: "owner/repo", issueNumber: 42 });
+    assert.deepEqual(getGithubConfig(dir), {
+      repo: "owner/repo",
+      issueNumber: 42,
+      allowedAuthors: ["owner"],
+    });
+    assert.equal(isAuthorAllowed("Owner", ghCfg.allowedAuthors), true);
+    assert.equal(isAuthorAllowed("stranger", ghCfg.allowedAuthors), false);
+
+    const ghCustom = configureGithub(
+      { repo: "owner/repo", issueNumber: 42, allowedAuthors: ["owner", "collab"] },
+      dir
+    );
+    assert.equal(isAuthorAllowed("collab", ghCustom.allowedAuthors), true);
+    assert.equal(isAuthorAllowed("stranger", ghCustom.allowedAuthors), false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -162,6 +162,12 @@ const TOOLS = [
           type: "number",
           description: "Optional issue number to configure.",
         },
+        allowedAuthors: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional GitHub usernames allowed to inject messages (defaults to the repo owner; prevents untrusted comments on public repos).",
+        },
         force: {
           type: "boolean",
           description: "Bypass the 30-second cooldown and fetch immediately (default true).",
@@ -495,7 +501,10 @@ function handleToolCall(name, args = {}) {
       return renameAgent(args, dir);
     case "sync_github": {
       if (args.repo && args.issueNumber) {
-        configureGithub({ repo: args.repo, issueNumber: args.issueNumber }, dir);
+        configureGithub(
+          { repo: args.repo, issueNumber: args.issueNumber, allowedAuthors: args.allowedAuthors },
+          dir
+        );
       }
       const syncResult = syncFromGithub({ force: args.force !== false }, dir);
       return {

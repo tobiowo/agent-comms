@@ -157,11 +157,12 @@ node /path/to/agent-comms/server/cli.mjs unlock --resource gpu --holder worker-1
 
 ### Cloud agents
 
-1. Open a pinned coordination issue in your repository, such as `owner/repo#42`.
+1. Open a pinned coordination issue. For a public project, you can put this issue in a separate private repository so coordination traffic stays private. If the issue is in a public repository, lock it with `gh issue lock <number>` so only collaborators can comment.
 2. Configure the bridge on your local machine:
    ```bash
-   node server/cli.mjs sync-github --repo owner/repo --issue 42
+   node server/cli.mjs sync-github --repo owner/bridge-repo --issue 1
    ```
+   By default, `sync-github` only imports comments authored by the repository owner (`owner`) to block untrusted comments on public repositories. Pass `--allow-authors owner,teammate` to allow additional GitHub accounts.
 3. Have cloud agents post structured comments on that issue:
    ```markdown
    <!-- agent-comms: {"from":"claude-code-cloud","to":"all","subject":"PR #50 ready","tags":["handoff"]} -->

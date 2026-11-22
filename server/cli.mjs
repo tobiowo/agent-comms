@@ -69,7 +69,7 @@ Usage:
   agent-comms barriers [--include-released]
 
   agent-comms prune [--hours <n>]
-  agent-comms sync-github [--repo <owner/name> --issue <n>]
+  agent-comms sync-github [--repo <owner/name> --issue <n>] [--allow-authors <u1,u2>]
   agent-comms channels
 
 Global option:
@@ -341,7 +341,16 @@ async function main() {
     }
     case "sync-github": {
       if (flags.repo && flags.issue) {
-        configureGithub({ repo: flags.repo, issueNumber: Number(flags.issue) }, BUS_DIR);
+        const allowedAuthors = flags["allow-authors"]
+          ? String(flags["allow-authors"])
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : null;
+        configureGithub(
+          { repo: flags.repo, issueNumber: Number(flags.issue), allowedAuthors },
+          BUS_DIR
+        );
       }
       const res = syncFromGithub({ force: true }, BUS_DIR);
       console.log(
