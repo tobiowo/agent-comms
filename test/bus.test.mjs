@@ -409,3 +409,81 @@ test("security: rejects traversal IDs, reserved prototype keys, oversized IDs, a
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("FIFO lock queue auto-transfers on release and wakes next waiter reactively", async () => {
+  const dir = makeTmpBus();
+  try {
+    registerAgent({ agentId: "a", runtime: "antigravity" }, dir);
+    registerAgent({ agentId: "b", runtime: "claude-code", status: "idle" }, dir);
+    registerAgent({ agentId: "c", runtime: "deepseek", status: "idle" }, dir);
+
+    assert.equal(acquireLock({ resource: "local-check", holder: "a", note: "PR #1" }, dir).ok, true);
+
+    const qB = acquireLock(
+      { resource: "local-check", holder: "b", enqueue: true, note: "PR #2" },
+      dir
+    );
+    assert.equal(qB.acquired, false);
+    assert.equal(qB.queued, true);
+    assert.equal(qB.position, 1);
+
+    const qC = acquireLock(
+      { resource: "local-check", holder: "c", enqueue: true, note: "PR #3" },
+      dir
+    );
+    assert.equal(qC.queued, true);
+    assert.equal(qC.position, 2);
+
+    const waitB = waitForMessages(
+      { agentId: "b", directOnly: true, timeoutSeconds: 5, pollIntervalMs: 500 },
+      dir
+    );
+
+    const relA = releaseLock({ resource: "local-check", holder: "a" }, dir);
+    assert.equal(relA.released, true);
+    assert.equal(relA.transferredTo, "b");
+    assert.equal(relA.lock.holder, "b");
+    assert.equal(relA.lock.queue.length, 1);
+
+    const wokeB = await waitB;
+    assert.equal(wokeB.timedOut, false);
+    assert.match(wokeB.messages[0].subject, /Lock granted: local-check/);
+
+    // c can cleanly dequeue itself via releaseLock
+    const deqC = releaseLock({ resource: "local-check", holder: "c" }, dir);
+    assert.equal(deqC.ok, true);
+    assert.equal(deqC.dequeued, true);
+
+    // Now when b releases, the lock is fully removed
+    const relB = releaseLock({ resource: "local-check", holder: "b" }, dir);
+    assert.equal(relB.released, true);
+    assert.equal(relB.transferredTo, undefined);
+    assert.equal(listLocks({}, dir).length, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("multi-recipient sendMessage delivers directly to all listed recipients and excludes others", () => {
+  const dir = makeTmpBus();
+  try {
+    const msg = sendMessage(
+      { from: "coord", to: ["a", "b", "a"], subject: "update", body: "advisory now" },
+      dir
+    );
+    assert.deepEqual(msg.to, ["a", "b"]);
+
+    const msgCsv = sendMessage(
+      { from: "coord", to: "b, c", subject: "csv", body: "hi b and c" },
+      dir
+    );
+    assert.deepEqual(msgCsv.to, ["b", "c"]);
+
+    assert.equal(readInbox({ agentId: "a", directOnly: true, syncGithub: false }, dir).length, 1);
+    assert.equal(readInbox({ agentId: "b", directOnly: true, syncGithub: false }, dir).length, 2);
+    assert.equal(readInbox({ agentId: "c", directOnly: true, syncGithub: false }, dir).length, 1);
+    assert.equal(readInbox({ agentId: "d", directOnly: true, syncGithub: false }, dir).length, 0);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

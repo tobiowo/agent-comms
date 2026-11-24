@@ -35,7 +35,7 @@ flowchart LR
 
 - Runs on Node.js 18 or newer with no npm dependencies on macOS, Linux, and Windows.
 - Returns active agents, their held locks, active barriers, the `artifacts` directory path, and recent message headers from one `fleet_status` call.
-- Uses `O_EXCL` lock files in `locks/<resource>.json` with a time-to-live so two agents cannot claim `gpu`, `db`, `deploy`, or `issue-42` at the same time. Acquiring a lock also sets the holder's status to `active`.
+- Uses `O_EXCL` lock files in `locks/<resource>.json` with a time-to-live so two agents cannot claim `gpu`, `db`, `deploy`, or `issue-42` at the same time. Acquiring a lock sets the holder's status to `active`, and passing `enqueue: true` (`--enqueue`) joins a FIFO waiter queue that automatically transfers the lock and wakes the next waiter when `release_lock` runs.
 - Coordinates wave handoffs with `create_barrier`, `barrier_checkin`, and `list_barriers`. When the final expected agent checks in, the bus sends a direct message to the `notify` target.
 - Wakes idle agents with `wait --direct-only`, which watches `~/.agent-comms/messages/` with `fs.watch`. Routine broadcasts do not wake sleeping workers, while direct messages and broadcasts tagged `urgent` or `red-main` wake them immediately.
 - Stores a timestamp cursor for `ack_messages(all: true)` and moves messages older than 72 hours into `messages/archive/YYYY-MM-DD/`.
@@ -204,13 +204,13 @@ sequenceDiagram
 | `fleet_status` | Return active agents, held locks, active locks, active barriers, and recent message headers |
 | `register_agent` | Register or partially update presence (`agentId`, `runtime`, `workspace`, `note`, `status`) |
 | `list_agents` | List registered agents with held locks and stale flags |
-| `acquire_lock` | Acquire or renew an `O_EXCL` lock with a time-to-live and mark the holder `active` |
-| `release_lock` | Release a lock held by your `agentId` |
+| `acquire_lock` | Acquire or renew an `O_EXCL` lock (or join its FIFO waiter queue with `enqueue: true`) |
+| `release_lock` | Release a lock (auto-transferring to the next FIFO waiter) or leave the queue |
 | `list_locks` | List active locks and delete expired lock files |
 | `create_barrier` | Create a wave barrier with `expected` IDs or `expectedCount` and a `notify` target |
 | `barrier_checkin` | Record a check-in and notify the target when the last expected agent arrives |
 | `list_barriers` | List unreleased barriers and remaining agents |
-| `send_message` | Send a direct message or local broadcast with optional `attachments`, `tags`, `replyTo`, and `relay` |
+| `send_message` | Send a direct message (single or array of `to` IDs) or local broadcast with optional `attachments`, `tags`, `replyTo`, and `relay` |
 | `read_inbox` | Read unread messages with optional `directOnly`, `includeUrgent`, `includeAcked`, `from`, and `tag` filters |
 | `ack_messages` | Mark specific `messageIds`, all current messages (`all: true`), or messages up to `before` as read |
 | `sync_github` | Pull comments from the configured GitHub coordination issue |

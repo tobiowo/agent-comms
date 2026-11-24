@@ -141,7 +141,8 @@ export function pushToGithub(msg, baseDir) {
     tags: msg.tags || [],
     replyTo: msg.replyTo || null,
   };
-  const header = `**From:** \`${msg.from}\` → **To:** \`${msg.to}\`${msg.subject ? ` — *${msg.subject}*` : ""}`;
+  const toDisplay = Array.isArray(msg.to) ? msg.to.join(", ") : msg.to;
+  const header = `**From:** \`${msg.from}\` → **To:** \`${toDisplay}\`${msg.subject ? ` — *${msg.subject}*` : ""}`;
   const tagLine = msg.tags?.length ? `\n\n_Tags: ${msg.tags.join(", ")}_` : "";
   const safeMeta = JSON.stringify(meta).replace(/-->/g, "--\\u003e");
   const commentBody = `<!-- agent-comms: ${safeMeta} -->\n${header}\n\n${msg.body}${tagLine}\n\nPosted by: ${msg.from}`;

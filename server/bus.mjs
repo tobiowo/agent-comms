@@ -223,13 +223,14 @@ export function listAgents(
 // --- Atomic Resource / Issue Locks ---
 
 export function acquireLock(
-  { resource, holder, ttlMinutes = 60, note = "", force = false } = {},
+  { resource, holder, ttlMinutes = 60, note = "", force = false, enqueue = false } = {},
   baseDir = DEFAULT_COMMS_DIR
 ) {
   ensureLayout(baseDir);
   const resId = sanitizeId(resource, "resource");
   const holderId = sanitizeId(holder, "holder");
-  const ttlMs = Math.max(1, Number(ttlMinutes) || 60) * 60 * 1000;
+  const ttlMin = Math.max(1, Number(ttlMinutes) || 60);
+  const ttlMs = ttlMin * 60 * 1000;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ttlMs).toISOString();
   const lockPath = path.join(baseDir, "locks", `${resId}.json`);
@@ -240,6 +241,7 @@ export function acquireLock(
     note: String(note || ""),
     acquiredAt: now.toISOString(),
     expiresAt,
+    queue: [],
   };
 
   try {
@@ -263,9 +265,13 @@ export function acquireLock(
 
   if (force || isExpired || existing?.holder === holderId) {
     const renewed = !isExpired && existing?.holder === holderId;
+    const existingQueue = Array.isArray(existing?.queue)
+      ? existing.queue.filter((w) => w && w.holder !== holderId)
+      : [];
     const nextRecord = {
       ...record,
       acquiredAt: renewed ? existing.acquiredAt : record.acquiredAt,
+      queue: existingQueue,
     };
     writeJsonAtomic(lockPath, nextRecord);
     touchAgent(holderId, baseDir, { status: "active" });
@@ -278,9 +284,37 @@ export function acquireLock(
     };
   }
 
+  if (enqueue) {
+    const queue = Array.isArray(existing.queue) ? [...existing.queue] : [];
+    const existingIdx = queue.findIndex((w) => w && w.holder === holderId);
+    const entry = {
+      holder: holderId,
+      note: String(note || ""),
+      ttlMinutes: ttlMin,
+      enqueuedAt: existingIdx >= 0 ? queue[existingIdx].enqueuedAt : now.toISOString(),
+    };
+    if (existingIdx >= 0) {
+      queue[existingIdx] = entry;
+    } else {
+      queue.push(entry);
+    }
+    const updated = { ...existing, queue };
+    writeJsonAtomic(lockPath, updated);
+    const position = queue.findIndex((w) => w.holder === holderId) + 1;
+    return {
+      ok: false,
+      acquired: false,
+      queued: true,
+      position,
+      resource: resId,
+      heldBy: updated,
+    };
+  }
+
   return {
     ok: false,
     acquired: false,
+    queued: false,
     resource: resId,
     heldBy: existing,
   };
@@ -301,6 +335,14 @@ export function releaseLock(
   const isExpired =
     !existing.expiresAt || Date.now() > Date.parse(existing.expiresAt);
   if (!force && !isExpired && holderId && existing.holder !== holderId) {
+    // If the caller is waiting in the FIFO queue, allow them to leave the queue cleanly.
+    const queue = Array.isArray(existing.queue) ? existing.queue : [];
+    const idx = queue.findIndex((w) => w && w.holder === holderId);
+    if (idx >= 0) {
+      queue.splice(idx, 1);
+      writeJsonAtomic(lockPath, { ...existing, queue });
+      return { ok: true, released: false, dequeued: true, resource: resId };
+    }
     return {
       ok: false,
       released: false,
@@ -309,6 +351,46 @@ export function releaseLock(
       heldBy: existing,
     };
   }
+
+  const queue = Array.isArray(existing.queue) ? [...existing.queue] : [];
+  if (queue.length > 0) {
+    const next = queue.shift();
+    const now = new Date();
+    const ttlMs = Math.max(1, Number(next.ttlMinutes) || 60) * 60 * 1000;
+    const nextRecord = {
+      resource: resId,
+      holder: next.holder,
+      note: String(next.note || ""),
+      acquiredAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+      queue,
+    };
+    writeJsonAtomic(lockPath, nextRecord);
+    if (holderId) touchAgent(holderId, baseDir);
+    touchAgent(next.holder, baseDir, { status: "active" });
+
+    const notification = sendMessage(
+      {
+        from: holderId || existing.holder,
+        to: next.holder,
+        subject: `Lock granted: ${resId}`,
+        body: `Lock '${resId}' was released by '${existing.holder}' and automatically transferred to you (expires ${nextRecord.expiresAt}).${next.note ? ` Note: ${next.note}` : ""}`,
+        tags: ["lock", "handoff"],
+        relay: false,
+      },
+      baseDir
+    );
+    return {
+      ok: true,
+      released: true,
+      resource: resId,
+      previousHolder: existing.holder,
+      transferredTo: next.holder,
+      lock: nextRecord,
+      notification,
+    };
+  }
+
   try {
     fs.unlinkSync(lockPath);
   } catch {
@@ -389,6 +471,25 @@ export function archiveOldMessages(
 
 // --- Messaging ---
 
+function normalizeRecipients(to) {
+  if (Array.isArray(to)) {
+    const cleaned = [];
+    for (const item of to) {
+      const s = String(item || "").trim();
+      if (!s) continue;
+      if (s === "all" || s === "*") return "all";
+      cleaned.push(sanitizeId(s, "to"));
+    }
+    const unique = Array.from(new Set(cleaned));
+    if (unique.length === 0) throw new Error("to must specify at least one recipient");
+    return unique.length === 1 ? unique[0] : unique;
+  }
+  if (typeof to === "string" && to.includes(",")) {
+    return normalizeRecipients(to.split(","));
+  }
+  return to === "all" || to === "*" ? "all" : sanitizeId(to, "to");
+}
+
 export function sendMessage(
   {
     from,
@@ -407,7 +508,7 @@ export function sendMessage(
     throw new Error("body must be a non-empty string");
   }
   const sender = sanitizeId(from, "from");
-  const recipient = to === "all" || to === "*" ? "all" : sanitizeId(to, "to");
+  const recipient = normalizeRecipients(to);
   const now = new Date();
   const stamp = now.toISOString().replace(/[:.]/g, "-");
   const shortRand = crypto.randomBytes(3).toString("hex");
@@ -430,8 +531,10 @@ export function sendMessage(
   touchAgent(sender, baseDir);
   archiveOldMessages({}, baseDir);
 
-  const shouldRelay =
-    relay === true || (relay !== false && CLOUD_RECIPIENTS.has(recipient));
+  const hasCloudRecipient = Array.isArray(recipient)
+    ? recipient.some((r) => CLOUD_RECIPIENTS.has(r))
+    : CLOUD_RECIPIENTS.has(recipient);
+  const shouldRelay = relay === true || (relay !== false && hasCloudRecipient);
   if (shouldRelay) {
     const githubRelay = pushToGithub(msg, baseDir);
     return { ...msg, githubRelay };
@@ -484,7 +587,7 @@ export function readInbox(
   for (const file of files) {
     const msg = readJsonSafe(path.join(msgDir, file));
     if (!msg) continue;
-    const isDirect = msg.to === id;
+    const isDirect = Array.isArray(msg.to) ? msg.to.includes(id) : msg.to === id;
     const isBroadcast = msg.to === "all";
     if (!isDirect && !isBroadcast) continue;
     if (directOnly && !isDirect && !(includeUrgent && hasUrgentTag(msg))) continue;

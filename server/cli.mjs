@@ -44,7 +44,7 @@ function parseFlags(argv) {
 }
 
 function usage() {
-  console.log(`agent-comms CLI v0.3.0 (bus: ${DEFAULT_COMMS_DIR})
+  console.log(`agent-comms CLI v0.4.0 (bus: ${DEFAULT_COMMS_DIR})
 
 Usage:
   agent-comms status [--include-stale] [--recent <n>]
@@ -53,14 +53,14 @@ Usage:
   agent-comms unregister --id <agentId>
   agent-comms agents [--active-only] [--stale-minutes <n>]
 
-  agent-comms send --from <agentId> [--to <agentId|all>] [--subject <text>] --body <text> [--tags <a,b>] [--attach <p1,p2>] [--reply-to <msgId>] [--relay | --no-relay]
+  agent-comms send --from <agentId> [--to <id1,id2|all>] [--subject <text>] --body <text> [--tags <a,b>] [--attach <p1,p2>] [--reply-to <msgId>] [--relay | --no-relay]
   agent-comms inbox --id <agentId> [--from <agentId>] [--tag <tag>] [--direct-only] [--strict-direct] [--all] [--exclude-self] [--limit <n>] [--no-sync]
   agent-comms ack --id <agentId> (--msg <id1,id2,...> | --all | --before <iso>)
 
   agent-comms wait --id <agentId> [--from <agentId>] [--tag <tag>] [--direct-only] [--strict-direct] [--timeout <sec>] [--sync-github]
   agent-comms watch --id <agentId> [--from <agentId>] [--tag <tag>] [--direct-only] [--strict-direct] [--sync-github]
 
-  agent-comms lock --resource <name> --holder <agentId> [--ttl <min>] [--note <text>] [--force]
+  agent-comms lock --resource <name> --holder <agentId> [--ttl <min>] [--note <text>] [--enqueue] [--force]
   agent-comms unlock --resource <name> --holder <agentId> [--force]
   agent-comms locks [--include-expired]
 
@@ -257,12 +257,13 @@ async function main() {
           holder: flags.holder,
           ttlMinutes: flags.ttl ? Number(flags.ttl) : 60,
           note: flags.note || "",
+          enqueue: Boolean(flags.enqueue),
           force: Boolean(flags.force),
         },
         BUS_DIR
       );
       console.log(JSON.stringify(res, null, 2));
-      if (!res.ok) process.exit(2);
+      if (!res.ok && !res.queued) process.exit(2);
       break;
     }
     case "unlock": {

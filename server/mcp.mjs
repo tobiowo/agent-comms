@@ -23,7 +23,7 @@ import { configureGithub, getGithubConfig, syncFromGithub } from "./github.mjs";
 
 const SERVER_INFO = {
   name: "agent-comms",
-  version: "0.3.0",
+  version: "0.4.0",
 };
 
 const TOOLS = [
@@ -111,8 +111,12 @@ const TOOLS = [
           description: "Sender agentId.",
         },
         to: {
-          type: "string",
-          description: "Recipient agentId, or 'all' to broadcast locally.",
+          oneOf: [
+            { type: "string" },
+            { type: "array", items: { type: "string" } },
+          ],
+          description:
+            "Recipient agentId, array of agentIds (or comma-separated IDs) for multi-recipient direct delivery, or 'all' to broadcast locally.",
         },
         subject: {
           type: "string",
@@ -278,13 +282,19 @@ const TOOLS = [
           type: "boolean",
           description: "Override an existing non-expired lock (default false).",
         },
+        enqueue: {
+          type: "boolean",
+          description:
+            "If true and the lock is currently held, join its FIFO waiter queue; release_lock automatically grants you the lock and sends a direct wakeup message when it is your turn.",
+        },
       },
       required: ["resource", "holder"],
     },
   },
   {
     name: "release_lock",
-    description: "Release a resource lock held by your agentId.",
+    description:
+      "Release a resource lock held by your agentId (auto-transferring to the next FIFO queued waiter and waking them), or leave the queue if you are waiting.",
     inputSchema: {
       type: "object",
       properties: {

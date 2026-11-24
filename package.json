@@ -1,6 +1,6 @@
 {
   "name": "agent-comms",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Zero-dependency local message bus (MCP, CLI, reactive push wait, atomic TTL locks, wave barriers, and optional GitHub issue bridge) for coordinating coding agents across Antigravity, Claude Code, Cursor, Codex, DeepSeek, and cloud sandboxes.",
   "type": "module",
   "license": "MIT",
